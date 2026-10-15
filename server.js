@@ -1,6 +1,4 @@
-fetch("https://TU-SERVIDOR.onrender.com/api")
-  .then(res => res.json())
-  .then(data => console.log(data));
+
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
