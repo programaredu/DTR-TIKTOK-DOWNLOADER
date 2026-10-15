@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta 
+ name="viewport"
+ content="width=device-width, initial-scale=1">
+<title>DTR SYSTEM – TikTok Downloader</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<aside id="side">
+ <div class="brand">DTR SYSTEM<small>TikTok Downloader</small></div>
+ <nav>
+  <button data-v="dash" class="on">Panel</button>
+  <button data-v="dl">Descargar</button>
+  <button data-v="hist">Historial</button>
+ </nav>
+ <div class="status"><span class="dot" id="sdot"></span><span id="stxt">Conectando…</span></div>
+</aside>
+
+<main>
+ <header class="top">
+  <button id="burger" aria-label="Menú">☰</button>
+  <h1>root@dtr:~$ <span id="title" class="cursor">panel</span></h1>
+ </header>
+
+ <section class="view on" id="v-dash">
+  <div class="grid kpis">
+   <div class="card kpi">
+    <h2>Total de descargas</h2>
+    <b id="k-total">0</b></div>
+   <div class="card kpi g">
+    <h2>Exitosas</h2>
+    <b id="k-ok">0</b></div>
+   <div class="card kpi r"><h2>Fallidas</h2><b id="k-err">0</b></div>
+   <div class="card kpi"><h2>Tasa de éxito</h2><b id="k-rate">–</b></div>
+   <div class="card kpi"><h2>Datos descargados</h2><b id="k-size">0 MB</b></div>
+   <div class="card kpi"><h2>Hoy</h2><b id="k-today">0</b></div>
+  </div>
+  <div class="grid two">
+   <div class="card"><h2>Descargas exitosas · últimos 7 días</h2><div class="bars" id="bars"></div></div>
+   <div class="card"><h2>Usuarios más descargados</h2><div id="top" class="empty">Sin datos todavía.</div></div>
+  </div>
+ </section>
+
+ <section class="view" id="v-dl">
+  <div class="card">
+   <h2>Enlace del video</h2>
+   <div class="row">
+    <input type="text" id="url" placeholder="https://www.tiktok.com/@usuario/video/…" autocomplete="off" spellcheck="false">
+    <button class="btn" id="paste">Pegar</button>
+    <button class="btn" id="clear">Limpiar</button>
+   </div>
+   <div id="msg" class="empty" style="padding:8px 0 0"></div>
+   <label class="auth"><input type="checkbox" id="auth"> Confirmo que el video es público y tengo autorización de su autor para descargarlo.</label>
+   <div class="row opts">
+    <select id="type" aria-label="Tipo de descarga">
+     <option value="video">Video MP4</option>
+     <option value="audio">Audio MP3</option>
+     <option value="image">Foto jpg</option>
+    </select>
+    <select id="qual" aria-label="Calidad">
+     <option value="best">Calidad máxima</option>
+     <option value="1080">1080p</option>
+     <option value="720">720p</option>
+     <option value="480">480p</option>
+    </select>
+   </div>
+   <div class="row">
+    <button class="btn" id="btn-info">Obtener información</button>
+    <button class="btn pri" id="btn-dl" disabled>Descargar</button>
+   </div>
+   <div class="preview" id="prev">
+    <img id="p-img" alt="Miniatura del video">
+    <dl>
+     <dt>Título</dt><dd id="p-title"></dd>
+     <dt>Usuario</dt><dd id="p-user"></dd>
+     <dt>Duración</dt><dd id="p-dur"></dd>
+    </dl>
+   </div>
+   <div class="prog" id="prog">
+    <div class="row" style="justify-content:space-between"><span id="pg-txt">Descargando…</span><span id="pg-pct"></span></div>
+    <div class="track" id="track"><i id="bar"></i></div>
+   </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+   <h2>Terminal</h2>
+   <div class="term" id="term" role="log" aria-live="polite"></div>
+  </div>
+ </section>
+
+ <section class="view" id="v-hist">
+  <div class="card">
+   <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+    <h2 style="margin:0">Historial de descargas</h2>
+    <button class="btn danger" id="hist-clear">Eliminar historial</button>
+   </div>
+   <div class="tw"><table>
+    <thead><tr><th>Fecha</th><th>Usuario</th><th>Título</th><th>Formato</th><th>Tamaño</th><th>Estado</th></tr></thead>
+    <tbody id="tbody"></tbody>
+   </table></div>
+   <div id="hist-empty" class="empty">No hay descargas registradas.</div>
+  </div>
+ </section>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const KEY='dtr_tiktok_history';
+const HOST=/^((www\.|m\.|vm\.|vt\.)?tiktok\.com|(www\.)?tt\.site)$/i;
+let history=[],meta=null,backendOk=false,busy=false;
+try{history=JSON.parse(localStorage.getItem(KEY)||'[]')}catch{}
+
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(history))}catch{}};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const mb=b=>(b/1048576).toFixed(b>=1048576*10?0:1)+' MB';
+const fmtDur=s=>s==null?'No disponible':Math.floor(s/60)+':'+String(Math.round(s%60)).padStart(2,'0');
+const log=(t,c='')=>{const p=document.createElement('p');p.className=c;p.textContent='['+new Date().toLocaleTimeString()+'] '+t;$('term').append(p);$('term').scrollTop=1e9};
+
+function valid(raw){try{const u=new URL(raw.trim());return /^https?:$/.test(u.protocol)&&HOST.test(u.hostname)}catch{return false}}
+function setMsg(t,bad){$('msg').textContent=t;$('msg').style.color=bad?'var(--red)':'var(--mut)'}
+
+/* Navegación */
+function go(v){
+  document.querySelectorAll('.view').forEach(e=>e.classList.toggle('on',e.id==='v-'+v));
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  $('title').textContent={dash:'panel',dl:'descargar',hist:'historial'}[v];
+  $('side').classList.remove('open');
+}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>go(b.dataset.v));
+$('burger').onclick=()=>$('side').classList.toggle('open');
+
+/* Dashboard */
+function render(){
+  const ok=history.filter(h=>h.status==='Completada'),err=history.length-ok.length;
+  const today=new Date().toDateString();
+  $('k-total').textContent=history.length;$('k-ok').textContent=ok.length;$('k-err').textContent=err;
+  $('k-rate').textContent=history.length?Math.round(ok.length/history.length*100)+'%':'–';
+  $('k-size').textContent=mb(ok.reduce((a,h)=>a+(h.size||0),0));
+  $('k-today').textContent=history.filter(h=>new Date(h.date).toDateString()===today).length;
+  const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-(6-i));return d});
+  const counts=days.map(d=>ok.filter(h=>new Date(h.date).toDateString()===d.toDateString()).length);
+  const max=Math.max(1,...counts);
+  $('bars').innerHTML=days.map((d,i)=>`<div title="${counts[i]}"><span>${counts[i]}</span><i style="height:${counts[i]/max*85}%"></i><span>${d.toLocaleDateString('es',{weekday:'short'})}</span></div>`).join('');
+  const by={};ok.forEach(h=>by[h.user||'—']=(by[h.user||'—']||0)+1);
+  const top=Object.entries(by).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  $('top').innerHTML=top.length?top.map(([u,n])=>`<div class="row" style="justify-content:space-between"><span>${esc(u)}</span><b style="color:var(--cyan)">${n}</b></div>`).join(''):'Sin datos todavía.';
+  $('tbody').innerHTML=history.map(h=>`<tr><td>${new Date(h.date).toLocaleString()}</td><td>${esc(h.user||'—')}</td><td title="${esc(h.title)}">${esc((h.title||'').slice(0,40))}</td><td>${esc(h.format)}</td><td>${h.size?mb(h.size):'—'}</td><td><span class="tag ${h.status==='Completada'?'ok':'err'}" title="${esc(h.error||'')}">${esc(h.status)}</span></td></tr>`).join('');
+  $('hist-empty').style.display=history.length?'none':'block';
+}
+function addHist(e){history.unshift({date:new Date().toISOString(),format:'MP4',...e});history=history.slice(0,500);save();render()}
+
+/* Formulario */
+function refreshBtn(){$('btn-dl').disabled=busy||!backendOk||!$('auth').checked||!valid($('url').value)}
+$('url').oninput=()=>{meta=null;$('prev').classList.remove('on');setMsg(!$('url').value||valid($('url').value)?'':'El enlace no pertenece a TikTok.',!!$('url').value&&!valid($('url').value));refreshBtn()};
+$('auth').onchange=refreshBtn;
+$('paste').onclick=async()=>{
+  try{const t=await navigator.clipboard.readText();$('url').value=t.trim();$('url').oninput();log('Enlace pegado desde el portapapeles.','i')}
+  catch{setMsg('El navegador bloqueó el portapapeles. Pega con Ctrl+V.',true);log('Acceso al portapapeles denegado.','e')}
+};
+$('clear').onclick=()=>{$('url').value='';$('auth').checked=false;meta=null;$('prev').classList.remove('on');$('prog').classList.remove('on');setMsg('');refreshBtn();log('Formulario limpiado.','i')};
+
+const EXT={video:'mp4',audio:'mp3',image:'jpg'};
+$('type').onchange=()=>{$('qual').disabled=$('type').value!=='video'};
+async function api(path,params,extra=''){
+  const r=await fetch(path+'?url='+encodeURIComponent(params)+extra);
+  if(!r.ok){let m='Error '+r.status;try{m=(await r.json()).error||m}catch{}throw new Error(m)}
+  return r;
+}
+
+$('btn-info').onclick=async()=>{
+  const url=$('url').value.trim();
+  if(!valid(url)){setMsg('El enlace no pertenece a TikTok.',true);return}
+  if(!backendOk){setMsg('El servidor no responde. Inicia server.js.',true);return}
+  log('Consultando información…','i');$('btn-info').disabled=true;
+  try{
+    meta=await(await api('/api/info',url)).json();
+    $('p-img').src=meta.thumbnail||'';$('p-title').textContent=meta.title;
+    $('p-user').textContent=meta.user?'@'+meta.user.replace(/^@/,''):'No disponible';
+    $('p-dur').textContent=fmtDur(meta.duration);
+    $('prev').classList.add('on');setMsg('');log('Información obtenida ('+meta.source+').');
+  }catch(e){setMsg(e.message,true);log('ERROR: '+e.message,'e')}
+  $('btn-info').disabled=false;refreshBtn();
+};
+
+$('btn-dl').onclick=async()=>{
+  const url=$('url').value.trim();
+  busy=true;refreshBtn();$('prog').classList.add('on');
+  const track=$('track'),bar=$('bar');track.classList.add('ind');bar.style.width='';
+  $('pg-txt').textContent='Preparando video en el servidor…';$('pg-pct').textContent='';
+  log('Iniciando descarga…','i');
+  const tipo=$('type').value,ext=EXT[tipo],q=$('qual').value;
+  const base={user:meta?.user,title:meta?.title||url,format:ext.toUpperCase()+(tipo==='video'&&q!=='best'?' '+q+'p':'')};
+  try{
+    const r=await api('/api/download',url,'&type='+tipo+'&q='+q);
+    const total=+r.headers.get('content-length')||0,rd=r.body.getReader(),parts=[];let got=0;
+    track.classList.remove('ind');$('pg-txt').textContent='Descargando '+ext.toUpperCase()+'…';
+    for(;;){
+      const{done,value}=await rd.read();if(done)break;
+      parts.push(value);got+=value.length;
+      if(total){const p=got/total*100;bar.style.width=p+'%';$('pg-pct').textContent=p.toFixed(0)+'% · '+mb(got)+' / '+mb(total)}
+    }
+    const blob=new Blob(parts,{type:r.headers.get('content-type')||'application/octet-stream'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download=(meta?.user||'tiktok')+'-'+Date.now()+'.'+ext;a.click();URL.revokeObjectURL(a.href);
+    bar.style.width='100%';$('pg-txt').textContent='Descarga completada';
+    log('Completada: '+mb(got),'i');addHist({...base,status:'Completada',size:got});
+  }catch(e){
+    track.classList.remove('ind');bar.style.width='0';$('pg-txt').textContent='Error en la descarga';
+    setMsg(e.message,true);log('ERROR: '+e.message,'e');addHist({...base,status:'Fallida',error:e.message});
+  }
+  busy=false;refreshBtn();
+};
+
+$('hist-clear').onclick=()=>{if(history.length&&confirm('¿Eliminar todo el historial?')){history=[];save();render();log('Historial eliminado.','i')}};
+
+/* Estado del servidor */
+async function health(){
+  try{
+    const h=await(await fetch('/api/health')).json();backendOk=true;
+    $('sdot').className='dot '+(h.ytdlp?'ok':'');
+    $('stxt').textContent=h.ytdlp?'Servidor + yt-dlp '+h.ytdlp:'Servidor activo · falta yt-dlp';
+    if(!h.ytdlp)log('yt-dlp no detectado: la descarga no funcionará hasta instalarlo.','e');
+  }catch{backendOk=false;$('sdot').className='dot bad';$('stxt').textContent='Servidor sin conexión'}
+  refreshBtn();
+}
+log('DTR SYSTEM iniciado. Usa solo videos públicos y con autorización.','i');
+render();health();
+</script>
+</body>
+</html>
